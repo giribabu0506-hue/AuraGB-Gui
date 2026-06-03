@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>AGB Drag Fixed</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#1e1e1e;
+}
+
+#canvas{
+  position:absolute;
+  left:0;
+  top:0;
+  right:260px;
+  bottom:0;
+  background:white;
+}
+
+/* container */
+.container{
+  position:absolute;
+  left:40px;
+  top:40px;
+  width:800px;
+  height:500px;
+  border:2px solid blue;
+  background:#f8f8f8;
+  overflow:hidden;
+}
+
+/* node */
+.node{
+  position:absolute;
+  background:#ddd;
+  border:1px solid #000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  user-select:none;
+}
+
+.node.selected{
+  outline:2px solid red;
+}
+
+/* controls full fit */
+.node input,
+.node button,
+.node select{
+  width:100%;
+  height:100%;
+}
+
+/* props */
+#props{
+  position:fixed;
+  right:0;
+  top:0;
+  width:260px;
+  bottom:0;
+  background:#111;
+  color:white;
+  padding:10px;
+}
+
+#props input{
+  width:100%;
+}
+</style>
+</head>
+
+<body>
+
+<div id="canvas"></div>
+
+<div id="props">
+  <h3>Properties</h3>
+  <div id="panel"></div>
+</div>
+
+<script>
+
+const canvas=document.getElementById("canvas");
+const panel=document.getElementById("props");
+
+let selected=null;
+
+/* ================= AGB ================= */
+const agbFile=`
+<agb-container>
+
+<agb-label value="Label1" width="120" height="40"/>
+<agb-button value="Button1" width="120" height="40"/>
+<agb-textbox value="Text1" width="140" height="40"/>
+<agb-checkbox value="Check1" width="140" height="40"/>
+<agb-select value="Option1" width="140" height="40"/>
+<agb-radio value="Radio1" width="140" height="40"/>
+
+</agb-container>
+`;
+
+/* ================= PARSE ================= */
+function parseAGB(){
+
+  const start=agbFile.indexOf("<agb-container>");
+  const end=agbFile.indexOf("</agb-container>");
+
+  const block=agbFile.slice(start,end);
+
+  let elements=[];
+  let id=0;
+  let pos=0;
+
+  while(true){
+
+    let s=block.indexOf("<agb-",pos);
+    if(s===-1) break;
+
+    let e=block.indexOf("/>",s);
+    if(e===-1) break;
+
+    let tag=block.slice(s,e+2);
+    pos=e+2;
+
+    let type=get(tag,"agb-"," ");
+    let value=get(tag,'value="','"');
+    let width=get(tag,'width="','"');
+    let height=get(tag,'height="','"');
+
+    elements.push({
+      id:id++,
+      type,
+      value,
+      w:+width,
+      h:+height,
+      x:20+id*150,
+      y:20+Math.floor(id/3)*100
+    });
+  }
+
+  return elements;
+}
+
+function get(str,start,end){
+  let s=str.indexOf(start);
+  if(s===-1) return "";
+  s+=start.length;
+  let e=str.indexOf(end,s);
+  if(e===-1) return "";
+  return str.substring(s,e);
+}
+
+/* ================= INIT ================= */
+let elements=parseAGB();
+
+const container=document.createElement("div");
+container.className="container";
+canvas.appendChild(container);
+
+render();
+
+/* ================= RENDER (ONLY UI, NOT DRAG CONTROL) ================= */
+function render(){
+
+  container.innerHTML="";
+
+  elements.forEach(el=>{
+
+    const node=document.createElement("div");
+    node.className="node";
+
+    node.style.left=el.x+"px";
+    node.style.top=el.y+"px";
+    node.style.width=el.w+"px";
+    node.style.height=el.h+"px";
+
+    draw(node,el);
+
+    node.onclick=(e)=>{
+      e.stopPropagation();
+      selected=el;
+      showProps();
+      render();
+    };
+
+    // IMPORTANT: attach drag only ONCE via function
+    attachDrag(node,el);
+
+    if(selected && selected.id===el.id){
+      node.classList.add("selected");
+    }
+
+    container.appendChild(node);
+  });
+}
+
+/* ================= DRAW ================= */
+function draw(node,el){
+
+  node.innerHTML="";
+
+  if(el.type==="label"){
+    node.innerText=el.value;
+  }
+
+  else if(el.type==="button"){
+    node.innerHTML=`<button>${el.value}</button>`;
+  }
+
+  else if(el.type==="textbox"){
+    node.innerHTML=`<input value="${el.value}">`;
+  }
+
+  else if(el.type==="checkbox"){
+    node.innerHTML=`<label><input type="checkbox"> ${el.value}</label>`;
+  }
+
+  else if(el.type==="select"){
+    node.innerHTML=`<select><option>${el.value}</option></select>`;
+  }
+
+  else if(el.type==="radio"){
+    node.innerHTML=`<label><input type="radio"> ${el.value}</label>`;
+  }
+}
+
+/* ================= PROPS ================= */
+function showProps(){
+  panel.innerHTML=`
+    TYPE: ${selected.type}<br><br>
+    VALUE:<br>
+    <input id="v" value="${selected.value}">
+  `;
+
+  document.getElementById("v").oninput=(e)=>{
+    selected.value=e.target.value;
+    render();
+  };
+}
+
+/* ================= FIXED DRAG (NO RE-RENDER DURING MOVE) ================= */
+function attachDrag(node,el){
+
+  let dragging=false;
+  let ox=0,oy=0;
+
+  node.onpointerdown=(e)=>{
+    dragging=true;
+    ox=e.clientX-el.x;
+    oy=e.clientY-el.y;
+    node.setPointerCapture(e.pointerId);
+  };
+
+  node.onpointermove=(e)=>{
+    if(!dragging) return;
+
+    el.x=e.clientX-ox;
+    el.y=e.clientY-oy;
+
+    // ONLY MOVE POSITION (NO render)
+    node.style.left=el.x+"px";
+    node.style.top=el.y+"px";
+  };
+
+  node.onpointerup=()=>{
+    dragging=false;
+  };
+}
+
+/* ================= OUTSIDE CLICK ================= */
+canvas.onclick=()=>{
+  selected=null;
+  render();
+};
+
+</script>
+
+</body>
+</html>
